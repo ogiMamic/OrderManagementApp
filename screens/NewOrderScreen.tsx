@@ -1,38 +1,27 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { View, Text, StyleSheet, FlatList, TouchableOpacity, TextInput, Alert } from 'react-native';
 import { useAppContext } from '../context/AppContext';
+import { useNavigation } from '@react-navigation/native';
 
 type Product = {
   id: string;
   name: string;
   price: number;
-  category: string;
 };
 
 const mockProducts: Product[] = [
-  { id: '1', name: 'Espresso', price: 2.5, category: 'Coffee' },
-  { id: '2', name: 'Cappuccino', price: 3.5, category: 'Coffee' },
-  { id: '3', name: 'Latte', price: 3.5, category: 'Coffee' },
-  { id: '4', name: 'Croissant', price: 2.0, category: 'Pastry' },
-  { id: '5', name: 'Chocolate Muffin', price: 2.5, category: 'Pastry' },
-  { id: '6', name: 'Green Tea', price: 2.0, category: 'Tea' },
-  { id: '7', name: 'Earl Grey', price: 2.0, category: 'Tea' },
+  { id: '1', name: 'Espresso', price: 2.5 },
+  { id: '2', name: 'Cappuccino', price: 3.5 },
+  { id: '3', name: 'Latte', price: 3.5 },
+  { id: '4', name: 'Croissant', price: 2.0 },
+  { id: '5', name: 'Chocolate Muffin', price: 2.5 },
 ];
 
 export default function NewOrderScreen() {
   const { addOrder } = useAppContext();
-  const [searchQuery, setSearchQuery] = useState('');
-  const [filteredProducts, setFilteredProducts] = useState(mockProducts);
+  const navigation = useNavigation();
   const [selectedProducts, setSelectedProducts] = useState<{ [key: string]: number }>({});
-
-  useEffect(() => {
-    const lowercasedQuery = searchQuery.toLowerCase();
-    const filtered = mockProducts.filter(product => 
-      product.name.toLowerCase().includes(lowercasedQuery) ||
-      product.category.toLowerCase().includes(lowercasedQuery)
-    );
-    setFilteredProducts(filtered);
-  }, [searchQuery]);
+  const [customerName, setCustomerName] = useState('');
 
   const addToOrder = (product: Product) => {
     setSelectedProducts(prev => ({
@@ -60,15 +49,25 @@ export default function NewOrderScreen() {
     }, 0);
   };
 
-  const submitOrder = () => {
+  const validateOrder = () => {
     if (Object.keys(selectedProducts).length === 0) {
       Alert.alert('Error', 'Please add at least one item to your order.');
-      return;
+      return false;
     }
+    if (!customerName.trim()) {
+      Alert.alert('Error', 'Please enter a customer name.');
+      return false;
+    }
+    return true;
+  };
+
+  const submitOrder = () => {
+    if (!validateOrder()) return;
 
     const newOrder = {
       id: Date.now().toString(),
       date: new Date().toISOString(),
+      customerName: customerName.trim(),
       items: Object.entries(selectedProducts).map(([productId, quantity]) => {
         const product = mockProducts.find(p => p.id === productId)!;
         return {
@@ -83,7 +82,11 @@ export default function NewOrderScreen() {
 
     addOrder(newOrder);
     Alert.alert('Success', 'Your order has been placed!', [
-      { text: 'OK', onPress: () => setSelectedProducts({}) }
+      { text: 'OK', onPress: () => {
+        setSelectedProducts({});
+        setCustomerName('');
+        navigation.goBack();
+      }}
     ]);
   };
 
@@ -105,21 +108,17 @@ export default function NewOrderScreen() {
     </View>
   );
 
-  const renderCategoryHeader = ({ section: { title } }: { section: { title: string } }) => (
-    <Text style={styles.categoryHeader}>{title}</Text>
-  );
-
   return (
     <View style={styles.container}>
       <Text style={styles.title}>New Order</Text>
       <TextInput
-        style={styles.searchInput}
-        placeholder="Search products..."
-        value={searchQuery}
-        onChangeText={setSearchQuery}
+        style={styles.input}
+        placeholder="Customer Name"
+        value={customerName}
+        onChangeText={setCustomerName}
       />
       <FlatList
-        data={filteredProducts}
+        data={mockProducts}
         renderItem={renderProductItem}
         keyExtractor={item => item.id}
         contentContainerStyle={styles.productList}
@@ -145,7 +144,7 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     marginBottom: 16,
   },
-  searchInput: {
+  input: {
     backgroundColor: 'white',
     padding: 10,
     borderRadius: 8,
@@ -191,13 +190,6 @@ const styles = StyleSheet.create({
   quantity: {
     marginHorizontal: 10,
     fontSize: 16,
-  },
-  categoryHeader: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    backgroundColor: '#E5E5EA',
-    padding: 8,
-    marginTop: 8,
   },
   orderSummary: {
     marginTop: 16,

@@ -1,72 +1,119 @@
 import React, { useState, useCallback } from 'react';
-import { View, Text, StyleSheet, FlatList, TouchableOpacity, RefreshControl, Alert } from 'react-native';
+import { View, Text, StyleSheet, FlatList, TouchableOpacity, TextInput, Alert } from 'react-native';
 import { useAppContext } from '../context/AppContext';
-import { useFocusEffect } from '@react-navigation/native';
-import { Heart } from 'lucide-react-native';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
+import { Swipeable } from 'react-native-gesture-handler';
 
 type OrderStatus = 'All' | 'Pending' | 'Processing' | 'Delivered' | 'Cancelled';
+type SortOption = 'date' | 'total';
 
 export default function OrdersScreen() {
-  const { orders, updateOrderStatus, addFavoriteOrder } = useAppContext();
+  const { orders, deleteOrder } = useAppContext();
+  const navigation = useNavigation();
   const [filteredOrders, setFilteredOrders] = useState(orders);
+  const [searchQuery, setSearchQuery] = useState('');
   const [selectedStatus, setSelectedStatus] = useState<OrderStatus>('All');
-  const [refreshing, setRefreshing] = useState(false);
+  const [showRecent, setShowRecent] = useState(false);
+  const [sortOption, setSortOption] = useState<SortOption>('date');
+  const [expandedOrderId, setExpandedOrderId] = useState<string | null>(null);
 
   useFocusEffect(
     useCallback(() => {
-      filterOrders(selectedStatus);
-    }, [orders, selectedStatus])
+      filterAndSortOrders();
+    }, [orders, searchQuery, selectedStatus, showRecent, sortOption])
   );
 
-  const filterOrders = (status: OrderStatus) => {
-    setSelectedStatus(status);
-    if (status === 'All') {
-      setFilteredOrders(orders);
-    } else {
-      setFilteredOrders(orders.filter(order => order.status === status));
+  const filterAndSortOrders = () => {
+    let filtered = [...orders];
+    
+    if (showRecent) {
+      filtered = filtered.slice(0, 5);
     }
+    
+    if (selectedStatus !== 'All') {
+      filtered = filtered.filter(order => order.status === selectedStatus);
+    }
+    
+    if (searchQuery) {
+      const lowercasedQuery = searchQuery.toLowerCase();
+      filtered = filtered.filter(order => 
+        order.id.toLowerCase().includes(lowercasedQuery) ||
+        (order.customerName && order.customerName.toLowerCase().includes(lowercasedQuery))
+      );
+    }
+    
+    filtered.sort((a, b) => {
+      if (sortOption === 'date') {
+        return new Date(b.date).getTime() - new Date(a.date).getTime();
+      } else {
+        return b.total - a.total;
+      }
+    });
+    
+    setFilteredOrders(filtered);
   };
 
-  const onRefresh = useCallback(() => {
-    setRefreshing(true);
-    // Simulate fetching new data
-    setTimeout(() => {
-      filterOrders(selectedStatus);
-      setRefreshing(false);
-    }, 1000);
-  }, [selectedStatus]);
+  const handleRepeatOrder = (order) => {
+    navigation.navigate('RepeatOrder', { order });
+  };
 
-  const handleAddToFavorites = (order) => {
-    const favoriteOrder = {
-      id: order.id,
-      name: `Order from ${new Date(order.date).toLocaleDateString()}`,
-      items: order.items,
-      total: order.total,
-    };
-    addFavoriteOrder(favoriteOrder);
-    Alert.alert('Success', 'Order added to favorites!');
+  const handleDeleteOrder = (orderId) => {
+    Alert.alert(
+      "Delete Order",
+      "Are you sure you want to delete this order?",
+      [
+        { text: "Cancel", style: "cancel" },
+        { text: "Delete", style: "destructive", onPress: () => {
+          deleteOrder(orderId);
+          filterAndSortOrders();
+        }}
+      ]
+    );
   };
 
   const renderOrderItem = ({ item }) => (
-    <TouchableOpacity 
-      style={styles.orderItem}
-      accessibilityLabel={`Order from ${new Date(item.date).toLocaleDateString()}, total €${item.total.toFixed(2)}, status: ${item.status}`}
+    <Swipeable
+      renderRightActions={() => (
+        <TouchableOpacity
+          style={styles.deleteButton}
+          onPress={() => handleDeleteOrder(item.id)}
+          accessibilityLabel={`Delete order from ${new Date(item.date).toLocaleDateString()}`}
+        >
+          <Text style={styles.deleteButtonText}>Delete</Text>
+        </TouchableOpacity>
+      )}
     >
-      <View>
-        <Text style={styles.orderDate}>Date: {new Date(item.date).toLocaleDateString()}</Text>
-        <Text style={styles.orderTotal}>Total: €{item.total.toFixed(2)}</Text>
-        <Text style={[styles.orderStatus, { color: getStatusColor(item.status) }]}>
-          Status: {item.status}
-        </Text>
-      </View>
       <TouchableOpacity
-        style={styles.favoriteButton}
-        onPress={() => handleAddToFavorites(item)}
-        accessibilityLabel={`Add order from ${new Date(item.date).toLocaleDateString()} to favorites`}
+        style={styles.orderItem}
+        onPress={() => setExpandedOrderId(expandedOrderId === item.id ? null : item.id)}
+        accessibilityLabel={`Order from ${new Date(item.date).toLocaleDateString()}, total €${item.total.toFixed(2)}, status: ${item.status}`}
       >
-        <Heart size={24} color="#007AFF" />
+        <View>
+          <Text style={styles.orderDate}>Date: {new Date(item.date).toLocaleDateString()}</Text>
+          <Text style={styles.orderTotal}>Total: €{item.total.toFixed(2)}</Text>
+          <Text style={[styles.orderStatus, { color: getStatusColor(item.status) }]}>
+            Status: {item.status}
+          </Text>
+        </View>
+        <TouchableOpacity
+          style={styles.repeatButton}
+          onPress={() => handleRepeatOrder(item)}
+          accessibilityLabel={`Repeat order from ${new Date(item.date).toLocaleDateString()}`}
+        >
+          <Text style={styles.repeatButtonText}>Repeat</Text>
+        </TouchableOpacity>
       </TouchableOpacity>
-    </TouchableOpacity>
+      {expandedOrderId === item.id && (
+        <View style={styles.expandedDetails}>
+          <Text style={styles.expandedTitle}>Order Details:</Text>
+          {item.items.map((orderItem, index) => (
+            <Text key={index} style={styles.expandedItem}>
+              {orderItem.name} x{orderItem.quantity} - €{(orderItem.price * orderItem.quantity).toFixed(2)}
+            </Text>
+          ))}
+        </View>
+      )}
+    </Swipeable>
   );
 
   const getStatusColor = (status: string) => {
@@ -85,7 +132,7 @@ export default function OrdersScreen() {
         <TouchableOpacity
           key={status}
           style={[styles.filterButton, selectedStatus === status && styles.selectedFilter]}
-          onPress={() => filterOrders(status)}
+          onPress={() => setSelectedStatus(status)}
           accessibilityLabel={`Filter orders by ${status} status`}
         >
           <Text style={[styles.filterText, selectedStatus === status && styles.selectedFilterText]}>
@@ -99,15 +146,39 @@ export default function OrdersScreen() {
   return (
     <View style={styles.container}>
       <Text style={styles.title}>Your Orders</Text>
+      <TextInput
+        style={styles.searchInput}
+        placeholder="Search orders..."
+        value={searchQuery}
+        onChangeText={setSearchQuery}
+        accessibilityLabel="Search orders"
+      />
       {renderStatusFilter()}
+      <View style={styles.controlsContainer}>
+        <TouchableOpacity
+          style={[styles.controlButton, showRecent && styles.controlButtonActive]}
+          onPress={() => setShowRecent(!showRecent)}
+          accessibilityLabel={showRecent ? "Show all orders" : "Show recent orders"}
+        >
+          <Text style={[styles.controlButtonText, showRecent && styles.controlButtonTextActive]}>
+            {showRecent ? "Show All" : "Show Recent"}
+          </Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[styles.controlButton, sortOption === 'date' && styles.controlButtonActive]}
+          onPress={() => setSortOption(sortOption === 'date' ? 'total' : 'date')}
+          accessibilityLabel={`Sort by ${sortOption === 'date' ? 'total' : 'date'}`}
+        >
+          <Text style={[styles.controlButtonText, sortOption === 'date' && styles.controlButtonTextActive]}>
+            Sort by {sortOption === 'date' ? 'Total' : 'Date'}
+          </Text>
+        </TouchableOpacity>
+      </View>
       <FlatList
         data={filteredOrders}
         renderItem={renderOrderItem}
         keyExtractor={item => item.id}
         contentContainerStyle={styles.listContainer}
-        refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
-        }
       />
     </View>
   );
@@ -123,6 +194,56 @@ const styles = StyleSheet.create({
     fontSize: 24,
     fontWeight: 'bold',
     marginBottom: 16,
+  },
+  searchInput: {
+    backgroundColor: 'white',
+    padding: 10,
+    borderRadius: 8,
+    marginBottom: 16,
+  },
+  filterContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 16,
+  },
+  filterButton: {
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 16,
+    backgroundColor: '#E5E5EA',
+  },
+  selectedFilter: {
+    backgroundColor: '#007AFF',
+  },
+  filterText: {
+    fontSize: 12,
+    color: '#000000',
+  },
+  selectedFilterText: {
+    color: '#FFFFFF',
+  },
+  controlsContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 16,
+  },
+  controlButton: {
+    flex: 1,
+    backgroundColor: '#E5E5EA',
+    padding: 10,
+    borderRadius: 8,
+    marginHorizontal: 4,
+    alignItems: 'center',
+  },
+  controlButtonActive: {
+    backgroundColor: '#007AFF',
+  },
+  controlButtonText: {
+    fontSize: 14,
+    fontWeight: 'bold',
+  },
+  controlButtonTextActive: {
+    color: '#FFFFFF',
   },
   listContainer: {
     flexGrow: 1,
@@ -150,28 +271,39 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: 'bold',
   },
-  filterContainer: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginBottom: 16,
-  },
-  filterButton: {
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    borderRadius: 16,
-    backgroundColor: '#E5E5EA',
-  },
-  selectedFilter: {
+  repeatButton: {
     backgroundColor: '#007AFF',
-  },
-  filterText: {
-    fontSize: 12,
-    color: '#000000',
-  },
-  selectedFilterText: {
-    color: '#FFFFFF',
-  },
-  favoriteButton: {
     padding: 8,
+    borderRadius: 8,
+  },
+  repeatButtonText: {
+    color: 'white',
+    fontWeight: 'bold',
+  },
+  deleteButton: {
+    backgroundColor: '#FF3B30',
+    justifyContent: 'center',
+    alignItems: 'center',
+    width: 80,
+    height: '100%',
+  },
+  deleteButtonText: {
+    color: 'white',
+    fontWeight: 'bold',
+  },
+  expandedDetails: {
+    backgroundColor: '#F2F2F7',
+    padding: 16,
+    borderBottomLeftRadius: 8,
+    borderBottomRightRadius: 8,
+  },
+  expandedTitle: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    marginBottom: 8,
+  },
+  expandedItem: {
+    fontSize: 14,
+    marginBottom: 4,
   },
 });
