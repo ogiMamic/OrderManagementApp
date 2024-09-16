@@ -1,50 +1,47 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
+type OrderItem = {
+  name: string;
+  quantity: number;
+  price: number;
+};
+
 type Order = {
   id: string;
   date: string;
-  items: { name: string; quantity: number; price: number }[];
+  items: OrderItem[];
   total: number;
   status: 'Pending' | 'Processing' | 'Delivered' | 'Cancelled';
 };
 
-type User = {
+type FavoriteOrder = {
   id: string;
   name: string;
-  email: string;
+  items: OrderItem[];
+  total: number;
 };
 
 type AppContextType = {
-  user: User | null;
-  setUser: (user: User | null) => void;
   orders: Order[];
-  addOrder: (order: Order) => void;
-  updateOrderStatus: (orderId: string, status: Order['status']) => void;
+  addOrder: (order: Order) => Promise<void>;
+  updateOrderStatus: (orderId: string, status: Order['status']) => Promise<void>;
   recentOrders: Order[];
+  favoriteOrders: FavoriteOrder[];
+  addFavoriteOrder: (order: FavoriteOrder) => Promise<void>;
+  removeFavoriteOrder: (orderId: string) => Promise<void>;
 };
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
 
 export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
-  const [user, setUser] = useState<User | null>(null);
   const [orders, setOrders] = useState<Order[]>([]);
+  const [favoriteOrders, setFavoriteOrders] = useState<FavoriteOrder[]>([]);
 
   useEffect(() => {
-    loadUserData();
     loadOrders();
+    loadFavoriteOrders();
   }, []);
-
-  const loadUserData = async () => {
-    try {
-      const userData = await AsyncStorage.getItem('user');
-      if (userData) {
-        setUser(JSON.parse(userData));
-      }
-    } catch (error) {
-      console.error('Error loading user data:', error);
-    }
-  };
 
   const loadOrders = async () => {
     try {
@@ -57,8 +54,19 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     }
   };
 
+  const loadFavoriteOrders = async () => {
+    try {
+      const favoriteOrdersData = await AsyncStorage.getItem('favoriteOrders');
+      if (favoriteOrdersData) {
+        setFavoriteOrders(JSON.parse(favoriteOrdersData));
+      }
+    } catch (error) {
+      console.error('Error loading favorite orders:', error);
+    }
+  };
+
   const addOrder = async (order: Order) => {
-    const updatedOrders = [...orders, order];
+    const updatedOrders = [order, ...orders];
     setOrders(updatedOrders);
     try {
       await AsyncStorage.setItem('orders', JSON.stringify(updatedOrders));
@@ -79,15 +87,36 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     }
   };
 
-  const recentOrders = orders.slice(0, 5); // Get the 5 most recent orders
+  const addFavoriteOrder = async (order: FavoriteOrder) => {
+    const updatedFavoriteOrders = [order, ...favoriteOrders];
+    setFavoriteOrders(updatedFavoriteOrders);
+    try {
+      await AsyncStorage.setItem('favoriteOrders', JSON.stringify(updatedFavoriteOrders));
+    } catch (error) {
+      console.error('Error saving favorite order:', error);
+    }
+  };
+
+  const removeFavoriteOrder = async (orderId: string) => {
+    const updatedFavoriteOrders = favoriteOrders.filter(order => order.id !== orderId);
+    setFavoriteOrders(updatedFavoriteOrders);
+    try {
+      await AsyncStorage.setItem('favoriteOrders', JSON.stringify(updatedFavoriteOrders));
+    } catch (error) {
+      console.error('Error removing favorite order:', error);
+    }
+  };
+
+  const recentOrders = orders.slice(0, 5);
 
   const value = {
-    user,
-    setUser,
     orders,
     addOrder,
     updateOrderStatus,
     recentOrders,
+    favoriteOrders,
+    addFavoriteOrder,
+    removeFavoriteOrder,
   };
 
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;
